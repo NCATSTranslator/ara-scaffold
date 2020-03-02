@@ -5,6 +5,7 @@ from contextlib import closing
 import json
 app = Flask(__name__)
 api = Api(app)
+import sys
 
 @app.route('/')
 def hello_world():
@@ -93,7 +94,6 @@ class Graph (object):
                 lockedNodes.append(node)
         return lockedNodes
     def getPath(self,node1,node2,path=None):
-        print("node 1: "+node1+" node2: "+node2+" path: "+str(path))
         if path is None:
             path = [node1]
         if node1==node2:
@@ -117,6 +117,7 @@ class Query(Resource):
         query = request.get_json(force=True)
         graph = Graph(query)
         self.processNgramQuery(graph)
+        #self.assembleResponses(None,None)
 
     def processQuery(self,graph):
         lockedNodes = graph.getLockedNodes()
@@ -142,16 +143,93 @@ class Query(Resource):
         return self.assembleResponses(responses,graph)
 
     def assembleResponses(self,responses,graph):
+
+
+        #with open("/Users/williamsmard/Software/ara-scaffold/response0.json") as json_file:
+        #    response0= json.load(json_file)
+        #with open("/Users/williamsmard/Software/ara-scaffold/response1.json") as json_file:
+        #    response1= json.load(json_file)
+        #responses=[response0,response1]
         edges = []
         nodes =[]
         qedges=[]
         qnodes=[]
-        queryGraph={}
-        for response in responses:
-            edges.extend(response['knowledge_graph']['edges'])
-            nodes.extend(response['knowledge_graph']['nodes'])
-            qedges.extend(response['query_graph']['edges'])
-            qnodes.extend(response['query_graph']['nodes'])
+        results=[]
+        for i in range(len(responses)):
+            for qedge in responses[i]['query_graph']['edges']:
+                if qedge not in qedges:
+                    qedges.append(qedge)
+            for qnode in responses[i]['query_graph']['nodes']:
+                if qnode not in qnodes:
+                    qnodes.append(qnode)
+            for edge in responses[i]['knowledge_graph']['edges']:
+                if edge not in edges:
+                    edges.append(edge)
+            for node in responses[i]['knowledge_graph']['nodes']:
+                if node not in nodes:
+                    nodes.append(node)
+            #print("subresults: "+str(len(responses[i]['results'])))
+            for firstResult in responses[i]['results']:
+                if i==0:
+                    j=1
+                elif j<len(responses)-1:
+                    j+=1
+                firstNodes = firstResult['node_bindings']
+                firstEdges = firstResult['edge_bindings']
+                for secondResult in responses[j]['results']:
+                    secondNodes=secondResult['node_bindings']
+                    secondEdges=secondResult['edge_bindings']
+                    newNodeBindings =[]
+                    newEdgeBindings=[]
+                    overlap = False
+                    for firstNode in firstNodes:
+                        for secondNode in secondNodes:
+                            if firstNode==secondNode:
+                                overlap=True
+                                #print("Overlap between " +str(firstNode) +" and "+str(secondNode) )
+                            if firstNode not in newNodeBindings:
+                                try:
+                                    name = list(filter(lambda n: n['id'] == firstNode['kg_id'], nodes))[0]['name']
+                                    firstNode.update({"name":name})
+                                except:
+                                    print("FIRST")
+                                newNodeBindings.append(firstNode)
+                            if secondNode not in newNodeBindings:
+                                try:
+                                    name = list(filter(lambda n: n['id'] == secondNode['kg_id'], responses[j]['knowledge_graph']['nodes']))[0]['name']
+                                    secondNode.update({"name":name})
+                                except:
+                                    print("SECOND")
+                                newNodeBindings.append(secondNode)
+                    if overlap:
+                        for fedge in firstEdges:
+                            for sedge in secondEdges:
+                                if fedge not in newEdgeBindings:
+                                    newEdgeBindings.append(fedge)
+                                if sedge not in newEdgeBindings:
+                                    newEdgeBindings.append(sedge)
+                        results.append(
+                            {
+                                "node_bindings":newNodeBindings,
+                                "edge_bindings":newEdgeBindings
+                            }
+                        )
+        queryGraph={
+            "nodes":qnodes,
+            "edges":qedges
+        }
+        knowledgeGraph={
+            "nodes":nodes,
+            "edges":edges
+        }
+        assembledResponse ={
+            "query_graph":queryGraph,
+            "results":results,
+            "knowledge_graph":knowledgeGraph
+        }
+        #print(str(len(results))+" results found")
+        with open("/Users/williamsmard/Software/ara-scaffold/assembledResponse.json","w") as outfile:
+            json.dump(assembledResponse,outfile)
 
     def queryNgram(self,query):
         #url ='http://transltr.io:7072/query'
@@ -167,12 +245,12 @@ class Query(Resource):
         nodes=[pair[0],middleNode,pair[1]]
         edges = [
             {
-                "id":"e00",
+                "id":nodes[0]['id']+nodes[1]['id'],
                 "source_id":nodes[0]['id'],
                 "target_id":nodes[1]['id']
             },
             {
-                "id":"e01",
+                "id":nodes[1]['id']+nodes[2]['id'],
                 "source_id":nodes[1]['id'],
                 "target_id":nodes[2]['id']
             }
