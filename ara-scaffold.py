@@ -334,7 +334,7 @@ class Query(Resource):
             responses.append(res)
         return self.assembleResponses(responses)
         return responseGraph
-    #TODO Should the progression through nodes be done with a stack instead?
+    #TODO Change node traversal to be based on a stack.  Current implementation could break with non linear QGs
     def processOneHopQueryRecursive(self,responseGraph, qNode=None):
 
         #DEBUGGING SECTION
@@ -424,6 +424,7 @@ class Query(Resource):
                                     newRG=self.assembleResponses([response,responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
                             return self.processOneHopQueryRecursive(newRG,nextNode)
             else:
+                #TODO I'm unsure this will hold with non-linear graphs
                 return self.processOneHopQueryRecursive(responseGraph,nextNode)
 
     def createOneHopQuery(self,fixedNode,unknownNode,responseGraph):
