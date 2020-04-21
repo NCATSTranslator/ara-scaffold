@@ -303,7 +303,7 @@ class Query(Resource):
 
 
     def processQuery(self, responseGraph):
-        #responseGraph=self.processNgramQuery(responseGraph)
+        responseGraph=self.processNgramQuery(responseGraph)
         #print(len(responseGraph.getKGNodes()))
         #self.processOneHopQuery(responseGraph)
         #do other stuff here
@@ -313,7 +313,7 @@ class Query(Resource):
     def processOneHopQuery(self,responseGraph):
         gq = responseGraph.getQueryGraph()
         queries=[]
-        responses=[]
+        responses=[responseGraph.json()]
         for node in gq.getNodes():
             nextList = gq.getNext(node['id'])
             for nextNode in nextList:
@@ -331,9 +331,7 @@ class Query(Resource):
                             queries.append(self.createOneHopQuery(fixedNode,nextNode,responseGraph))
         for query in queries:
             res = self.queryKnowledgeProviderScaffold(query)
-            print ("RES TYPE: "+str(type(res)))
             responses.append(res)
-        print (str(self.assembleResponses(responses)))
         return self.assembleResponses(responses)
         return responseGraph
     #TODO Should the progression through nodes be done with a stack instead?
@@ -343,7 +341,6 @@ class Query(Resource):
         kg = responseGraph.getKnowledgeGraph()
         results = responseGraph.getResults()
         qg=responseGraph.getQueryGraph()
-
         #####
         if qNode==None:
             qNode = qg.getNodes()[0]
@@ -357,74 +354,77 @@ class Query(Resource):
             return responseGraph
         #iterate over all the "next" nodes for our current query node
         for nextNode in nextList:
-            #if we have a pre-defined value for this node, find one-hop results for it, and then eliminate results for
-            #the previous node if they don't overlap with the results for the fixed node
-            if 'curie' in nextNode:
-                prevList =qg.getPrevious(qNode)
-                #iterating through all the nodes 'previous' to our current node
-                for prevNode in prevList:
-                    #query for connections nextNode-->prevNode (backwards)
-                    #TODO reevaluate this if we support edge directionality in the future
-                    query = self.createOneHopQuery(nextNode,prevNode,responseGraph)
-                    prevResponse = ResponseGraph(self.queryKnowledgeProviderScaffold(query))
-                    previousResults=prevResponse.getResults()
-                    idsOfPrevResults=[] #a set of ids of nodes found in results and bound to our previous node
-                    for result in previousResults:
-                        nodes=result['node_bindings']
-                        for node in nodes:
-                            if node['qg_id']==qNode['id'] and node['kg_id'] not in idsOfPrevResults:
-                                idsOfPrevResults.append(node['kg_id'])
-                    #go through our full set of (current) results, having been iteratively built and containing incomplete
-                    #results (not featuring all query nodes), and eliminate the ones eminating from our previous
-                    #node that don't match with our "next" node
-                    remainingIds=[]
-                    for result in results:
-                        nodes=result['node_bindings']
-                        for node in nodes:
-                            if node['qg_id']==prevNode['id']:
-                                if node['kg_id'] not in idsOfPrevResults:
-                                    responseGraph.removeResult(result)
-                                else:
-                                    remainingIds.append(node['kg_id'])
+            if responseGraph.getAllValuesForNode(nextNode)==[]:
+                #if we have a pre-defined value for this node, find one-hop results for it, and then eliminate results for
+                #the previous node if they don't overlap with the results for the fixed node
+                if 'curie' in nextNode:
+                    prevList =qg.getPrevious(qNode)
+                    #iterating through all the nodes 'previous' to our current node
+                    for prevNode in prevList:
+                        #query for connections nextNode-->prevNode (backwards)
+                        #TODO reevaluate this if we support edge directionality in the future
+                        query = self.createOneHopQuery(nextNode,prevNode,responseGraph)
+                        prevResponse = ResponseGraph(self.queryKnowledgeProviderScaffold(query))
+                        previousResults=prevResponse.getResults()
+                        idsOfPrevResults=[] #a set of ids of nodes found in results and bound to our previous node
+                        for result in previousResults:
+                            nodes=result['node_bindings']
+                            for node in nodes:
+                                if node['qg_id']==qNode['id'] and node['kg_id'] not in idsOfPrevResults:
+                                    idsOfPrevResults.append(node['kg_id'])
+                        #go through our full set of (current) results, having been iteratively built and containing incomplete
+                        #results (not featuring all query nodes), and eliminate the ones eminating from our previous
+                        #node that don't match with our "next" node
+                        remainingIds=[]
+                        for result in results:
+                            nodes=result['node_bindings']
+                            for node in nodes:
+                                if node['qg_id']==prevNode['id']:
+                                    if node['kg_id'] not in idsOfPrevResults:
+                                        responseGraph.removeResult(result)
+                                    else:
+                                        remainingIds.append(node['kg_id'])
 
-                #Making a new ResponseGraph that is a merge of the next->previous query and our now pruned full set
-                #TODO is this the right way to do this, or are we merging 'bad' results from prevResponse?
-                try:
-                    newRG=self.assembleResponses([prevResponse.json(),responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
-                except:
-                    print("bad")
-                #DEBUG
-                newKG = newRG.getKnowledgeGraph()
-                newResults = newRG.getResults()
-                ####
-                return self.processOneHopQueryRecursive(newRG,nextNode)
+                    #Making a new ResponseGraph that is a merge of the next->previous query and our now pruned full set
+                    #TODO is this the right way to do this, or are we merging 'bad' results from prevResponse?
+                    try:
+                        newRG=self.assembleResponses([prevResponse.json(),responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
+                    except:
+                        print("bad")
+                    #DEBUG
+                    newKG = newRG.getKnowledgeGraph()
+                    newResults = newRG.getResults()
+                    ####
+                    return self.processOneHopQueryRecursive(newRG,nextNode)
 
 
-            #if we don't have a fixed node next, and also don't have any results for the next node, then we need some.
-            elif responseGraph.getAllValuesForNode(nextNode)==[]:
-                    #if our qnode has a curie (is fixed) then we just query that to our next node
-                    if 'curie' in qNode:
-                        query=self.createOneHopQuery(qNode,nextNode,responseGraph)
-                        response = self.queryKnowledgeProviderScaffold(query)
-                        responseList = [response,responseGraph.json()]
-                        try:
-                            assembledResponse = self.assembleResponses(responseList,responseGraph.getQueryGraph().getRawGraph())
-                        except:
-                            print("bad")
-                        newRG=assembledResponse
-                        return self.processOneHopQueryRecursive(newRG,nextNode)
-                    #otherwise, we need to get all the values for our qnode and query each of those to our next node
-                    else:
-                        newRG=responseGraph
-                        for nodeValue in responseGraph.getAllValuesForNode(qNode):
-                            fixedNode = qNode.copy()
-                            fixedNode['curie']=nodeValue['id']
-                            fixedNode['name']=nodeValue['name']
-                            query = self.createOneHopQuery(fixedNode,nextNode,responseGraph)
+                #if we don't have a fixed node next, and also don't have any results for the next node, then we need some.
+                else:
+                        #if our qnode has a curie (is fixed) then we just query that to our next node
+                        if 'curie' in qNode:
+                            query=self.createOneHopQuery(qNode,nextNode,responseGraph)
                             response = self.queryKnowledgeProviderScaffold(query)
-                            if len(response)>0: #might not get results for all; skip the ones we don't
-                                newRG=self.assembleResponses([response,responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
-                        return self.processOneHopQueryRecursive(newRG,nextNode)
+                            responseList = [response,responseGraph.json()]
+                            try:
+                                assembledResponse = self.assembleResponses(responseList,responseGraph.getQueryGraph().getRawGraph())
+                            except:
+                                print("bad")
+                            newRG=assembledResponse
+                            return self.processOneHopQueryRecursive(newRG,nextNode)
+                        #otherwise, we need to get all the values for our qnode and query each of those to our next node
+                        else:
+                            newRG=responseGraph
+                            for nodeValue in responseGraph.getAllValuesForNode(qNode):
+                                fixedNode = qNode.copy()
+                                fixedNode['curie']=nodeValue['id']
+                                fixedNode['name']=nodeValue['name']
+                                query = self.createOneHopQuery(fixedNode,nextNode,responseGraph)
+                                response = self.queryKnowledgeProviderScaffold(query)
+                                if len(response)>0: #might not get results for all; skip the ones we don't
+                                    newRG=self.assembleResponses([response,responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
+                            return self.processOneHopQueryRecursive(newRG,nextNode)
+            else:
+                return self.processOneHopQueryRecursive(responseGraph,nextNode)
 
     def createOneHopQuery(self,fixedNode,unknownNode,responseGraph):
         nodes = [fixedNode,unknownNode]
@@ -551,7 +551,11 @@ class Query(Resource):
         #url ='http://transltr.io:7072/query'
         url = 'http://localhost:7072/query'
         with closing(requests.post(url, json=query, stream=False)) as response:
-            return json.loads(response.text)
+            try:
+                return json.loads(response.text)
+            except Exception as ex:
+                print("status " +str(response.status_code))
+                print("text "+response.text)
 
     def queryKnowledgeProviderScaffold(self,query):
         #url ='http://transltr.io:7072/query'
@@ -575,13 +579,16 @@ class Query(Resource):
 
         nodes=[pair[0],middleNode,pair[1]]
         edges=[]
-        ge =graph.getEdges()
-        for edge in ge:
-            if pair[0]['id'] in edge.values() and pair[1]['id'] in edge.values():
+        graphEdges =graph.getEdges()
+
+        for edge in graphEdges:
+            if(pair[0]['id'] in edge.values() or pair[1]['id'] in edge.values()) and middleNode['id'] in edge.values():
                 edges.append(edge)
+
         query = {
             "nodes":nodes,
-            "edges":edges}
+            "edges":edges
+        }
 
         return query
 
