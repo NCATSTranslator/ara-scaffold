@@ -183,38 +183,40 @@ class ResponseGraph(object):
         return unknownNodes
     def removeResult(self, result):
         results = self.getResults()
-        print("removing "+str(result))
         results.remove(result)
-    def removeOrphanedKgNodes(self):
-        print("trying to remove nodes")
+    def removeIncompleteResults(self):
+        results = self.getResults()
+        querySize = len(self.getQueryGraph().getNodes())
+        for result in results:
+            if len(result['node_bindings'])<querySize:
+                self.removeResult(result)
+
+    def removeOrphansFromKg(self):
         kgNodes = self.getKGNodes()
         results = self.getResults()
+        newKgNodes=[]
         resultNodeIds=[]
-        print("node length: "+str(len(kgNodes)))
+        kgEdges = self.getKGEdges()
+        resultEdgeIds=[]
+        newKgEdges=[]
         for result in results:
             for node in result['node_bindings']:
                 if node['kg_id'] not in resultNodeIds:
                     resultNodeIds.append(node['kg_id'])
-        for node in kgNodes:
-            if node['id'] not in resultNodeIds:
-                print("removing: "+str(node['id']))
-                kgNodes.remove(node)
-        print("node length after: "+str(len(kgNodes)))
-
-    def removeOrphanedKgEdges(self):
-        kgEdges = self.getKGEdges()
-        results = self.getResults()
-        resultEdgeIds=[]
-        for result in results:
             for edge in result['edge_bindings']:
                 if edge['kg_id'] not in resultEdgeIds:
                     resultEdgeIds.append(edge['kg_id'])
+        for node in kgNodes:
+            if node['id'] in resultNodeIds:
+                newKgNodes.append(node)
         for edge in kgEdges:
-            if edge['id'] not in resultEdgeIds:
-                kgEdges.remove(edge)
-    def removeOrphansFromKg(self):
-        self.removeOrphanedKgEdges()
-        self.removeOrphanedKgNodes()
+            if edge['id'] in resultEdgeIds:
+                newKgEdges.append(edge)
+        newKg = {
+            "nodes":newKgNodes,
+            "edges":newKgEdges
+        }
+        self.setKnowledgeGraph(newKg)
 
     #returns a map of kgNodeIds to a list of tuples with the edge id (0) and kgNodeId (1) for edges and nodes connected
     #to the kgNodeId key for a given query node id
@@ -301,11 +303,11 @@ class Query(Resource):
 
 
     def processQuery(self, responseGraph):
-        responseGraph=self.processNgramQuery(responseGraph)
+        #responseGraph=self.processNgramQuery(responseGraph)
         #print(len(responseGraph.getKGNodes()))
         #self.processOneHopQuery(responseGraph)
         #do other stuff here
-        #return self.processOneHopQueryRecursive(responseGraph)
+        responseGraph = self.processOneHopQueryRecursive(responseGraph)
         return responseGraph
     #todo make this recursive to keep progogating through the QG
     def processOneHopQuery(self,responseGraph):
@@ -334,51 +336,84 @@ class Query(Resource):
         print (str(self.assembleResponses(responses)))
         return self.assembleResponses(responses)
         return responseGraph
-
+    #TODO Should the progression through nodes be done with a stack instead?
     def processOneHopQueryRecursive(self,responseGraph, qNode=None):
+
+        #DEBUGGING SECTION
         kg = responseGraph.getKnowledgeGraph()
         results = responseGraph.getResults()
         qg=responseGraph.getQueryGraph()
+
+        #####
         if qNode==None:
             qNode = qg.getNodes()[0]
         nextList = qg.getNext(qNode)
+
+        #base case but might bug with branching graphs
         if len(nextList)==0:
+            responseGraph.removeIncompleteResults()
+            #removing nodes and edges from our ResponseGraph Knowledge Graph that no longer correspond to a result
+            responseGraph.removeOrphansFromKg()
             return responseGraph
+        #iterate over all the "next" nodes for our current query node
         for nextNode in nextList:
+            #if we have a pre-defined value for this node, find one-hop results for it, and then eliminate results for
+            #the previous node if they don't overlap with the results for the fixed node
             if 'curie' in nextNode:
-                print("nextNode with curie "+str(nextNode))
                 prevList =qg.getPrevious(qNode)
+                #iterating through all the nodes 'previous' to our current node
                 for prevNode in prevList:
-                    print("prevNode "+str(prevNode))
+                    #query for connections nextNode-->prevNode (backwards)
+                    #TODO reevaluate this if we support edge directionality in the future
                     query = self.createOneHopQuery(nextNode,prevNode,responseGraph)
-                    response = ResponseGraph(self.queryKnowledgeProviderScaffold(query))
-                    results=response.getResults()
-                    ids=[]
+                    prevResponse = ResponseGraph(self.queryKnowledgeProviderScaffold(query))
+                    previousResults=prevResponse.getResults()
+                    idsOfPrevResults=[] #a set of ids of nodes found in results and bound to our previous node
+                    for result in previousResults:
+                        nodes=result['node_bindings']
+                        for node in nodes:
+                            if node['qg_id']==qNode['id'] and node['kg_id'] not in idsOfPrevResults:
+                                idsOfPrevResults.append(node['kg_id'])
+                    #go through our full set of (current) results, having been iteratively built and containing incomplete
+                    #results (not featuring all query nodes), and eliminate the ones eminating from our previous
+                    #node that don't match with our "next" node
+                    remainingIds=[]
                     for result in results:
                         nodes=result['node_bindings']
                         for node in nodes:
-                            if node['qg_id']==qNode['id'] and node['kg_id'] not in ids:
-                                ids.append(node['kg_id'])
-                    rgResults=responseGraph.getResults()
-                    for result in rgResults:
-                        nodes=result['node_bindings']
-                        for node in nodes:
-                            if node['qg_id']==prevNode['id'] and node['kg_id'] not in ids:
-                                responseGraph.removeResult(result)
-                responseGraph.removeOrphansFromKg()
-                newRG=self.assembleResponses([response.json(),responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
+                            if node['qg_id']==prevNode['id']:
+                                if node['kg_id'] not in idsOfPrevResults:
+                                    responseGraph.removeResult(result)
+                                else:
+                                    remainingIds.append(node['kg_id'])
+
+                #Making a new ResponseGraph that is a merge of the next->previous query and our now pruned full set
+                #TODO is this the right way to do this, or are we merging 'bad' results from prevResponse?
+                try:
+                    newRG=self.assembleResponses([prevResponse.json(),responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
+                except:
+                    print("bad")
+                #DEBUG
+                newKG = newRG.getKnowledgeGraph()
+                newResults = newRG.getResults()
+                ####
                 return self.processOneHopQueryRecursive(newRG,nextNode)
 
 
-
+            #if we don't have a fixed node next, and also don't have any results for the next node, then we need some.
             elif responseGraph.getAllValuesForNode(nextNode)==[]:
+                    #if our qnode has a curie (is fixed) then we just query that to our next node
                     if 'curie' in qNode:
                         query=self.createOneHopQuery(qNode,nextNode,responseGraph)
                         response = self.queryKnowledgeProviderScaffold(query)
                         responseList = [response,responseGraph.json()]
-                        assembledResponse = self.assembleResponses(responseList,responseGraph.getQueryGraph().getRawGraph())
+                        try:
+                            assembledResponse = self.assembleResponses(responseList,responseGraph.getQueryGraph().getRawGraph())
+                        except:
+                            print("bad")
                         newRG=assembledResponse
                         return self.processOneHopQueryRecursive(newRG,nextNode)
+                    #otherwise, we need to get all the values for our qnode and query each of those to our next node
                     else:
                         newRG=responseGraph
                         for nodeValue in responseGraph.getAllValuesForNode(qNode):
@@ -387,7 +422,8 @@ class Query(Resource):
                             fixedNode['name']=nodeValue['name']
                             query = self.createOneHopQuery(fixedNode,nextNode,responseGraph)
                             response = self.queryKnowledgeProviderScaffold(query)
-                            newRG=self.assembleResponses([response,responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
+                            if len(response)>0: #might not get results for all; skip the ones we don't
+                                newRG=self.assembleResponses([response,responseGraph.json()],responseGraph.getQueryGraph().getRawGraph())
                         return self.processOneHopQueryRecursive(newRG,nextNode)
 
     def createOneHopQuery(self,fixedNode,unknownNode,responseGraph):
@@ -441,8 +477,7 @@ class Query(Resource):
             #        qnodes.append(qnode)
 
             #print("subresults: "+str(len(responses[i]['results'])))
-            if len(responses[i]['results'])==0:
-                print("No results for "+str(i))
+
             for firstResult in responses[i]['results']:
                 if i==0:
                     j=1
@@ -487,8 +522,9 @@ class Query(Resource):
                                 "edge_bindings":newEdgeBindings
                             }
                         )
+
             if responses[i]['knowledge_graph'].keys() <{'edges','nodes'}:
-                continue
+                continue #skip this if the knowledge graph is blank
             for edge in responses[i]['knowledge_graph']['edges']:
                 if edge not in edges:
                     edges.append(edge)
@@ -509,14 +545,11 @@ class Query(Resource):
             "knowledge_graph":knowledgeGraph
         }
         finalAnswer = ResponseGraph(assembledResponse)
-        print("TYPE "+str(type(finalAnswer)))
         return finalAnswer
 
     def queryNgram(self,query):
         #url ='http://transltr.io:7072/query'
         url = 'http://localhost:7072/query'
-        print("queryNgram")
-        print(str(query))
         with closing(requests.post(url, json=query, stream=False)) as response:
             return json.loads(response.text)
 
