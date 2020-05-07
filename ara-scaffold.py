@@ -466,8 +466,6 @@ class Query(Resource):
             return ResponseGraph(responses[0])
         edges = []
         nodes =[]
-        #qedges=[]
-        #qnodes=[]
         results=[]
         for i in range(len(responses)):
             #for qedge in responses[i]['query_graph']['edges']:
@@ -532,10 +530,7 @@ class Query(Resource):
             for node in responses[i]['knowledge_graph']['nodes']:
                 if node not in nodes:
                     nodes.append(node)
-        #queryGraph={
-        #    "nodes":qnodes,
-        #    "edges":qedges
-        #}
+
         knowledgeGraph={
             "nodes":nodes,
             "edges":edges
