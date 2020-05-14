@@ -148,6 +148,7 @@ class ResponseGraph(object):
         self.__querygraph=QueryGraph(response['query_graph'])
         self.__results=response['results']
         self.__knowledgegraph=response['knowledge_graph']
+
     def getAllValuesForNode(self,queryNode):
         if isinstance(queryNode, str):
             id = queryNode
@@ -261,7 +262,8 @@ class ResponseGraph(object):
         self.__results=results
     def setKnowledgeGraph(self,kg):
         self.__knowledgegraph=kg
-
+    def setQueryGraph(self,qg):
+        self.__querygraph= qg
     def getQueryGraph(self):
         return self.__querygraph
     def getResults(self):
@@ -309,7 +311,7 @@ class Query(Resource):
         #do other stuff here
         responseGraph = self.processOneHopQueryRecursive(responseGraph)
         return responseGraph
-    
+
     #TODO Change node traversal to be based on a stack.  Current implementation could break with non linear QGs
     def processOneHopQueryRecursive(self,responseGraph, qNode=None):
 
@@ -438,8 +440,14 @@ class Query(Resource):
         responses=[response0,response1]
         return responses
     def assembleResponses(self,responses,query):
+        #if we only have one response, we don't have anything to assemble and can just return that response.  However
+        #we need to make sure that response still retains our original queryGraph in case the response is from an
+        #incomplete query
         if len(responses)==1:
-            return ResponseGraph(responses[0])
+            assembled = ResponseGraph(responses[0])
+            assembled.setQueryGraph(QueryGraph(query))
+            return assembled
+
         edges = []
         nodes =[]
         results=[]
