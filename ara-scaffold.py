@@ -309,31 +309,7 @@ class Query(Resource):
         #do other stuff here
         responseGraph = self.processOneHopQueryRecursive(responseGraph)
         return responseGraph
-    #todo make this recursive to keep progogating through the QG
-    def processOneHopQuery(self,responseGraph):
-        gq = responseGraph.getQueryGraph()
-        queries=[]
-        responses=[responseGraph.json()]
-        for node in gq.getNodes():
-            nextList = gq.getNext(node['id'])
-            for nextNode in nextList:
-                if responseGraph.getAllValuesForNode(nextNode)==[]:
-                    if 'curie' in node:
-                        queries.append(self.createOneHopQuery(node,nextNode,responseGraph))
-                    else:
-                        for nodeValue in responseGraph.getAllValuesForNode(node):
-                            fixedNode = node.copy()
-                            fixedNode['curie']=nodeValue['id']
-                            fixedNode['name']=nodeValue['name']
-                            query = self.createOneHopQuery(fixedNode,nextNode,responseGraph)
-                            response = self.queryKnowledgeProviderScaffold(query)
-                            print ("RES TYPE: "+str(type(response)))
-                            queries.append(self.createOneHopQuery(fixedNode,nextNode,responseGraph))
-        for query in queries:
-            res = self.queryKnowledgeProviderScaffold(query)
-            responses.append(res)
-        return self.assembleResponses(responses)
-        return responseGraph
+    
     #TODO Change node traversal to be based on a stack.  Current implementation could break with non linear QGs
     def processOneHopQueryRecursive(self,responseGraph, qNode=None):
 
