@@ -528,8 +528,8 @@ class Query(Resource):
         return finalAnswer
 
     def queryNgram(self,query):
-        #url ='http://transltr.io:7072/query'
-        url = 'http://localhost:7072/query'
+        url ='http://transltr.io:7072/query'
+        #url = 'http://localhost:7072/query'
         with closing(requests.post(url, json=query, stream=False)) as response:
             try:
                 return json.loads(response.text)
@@ -538,8 +538,8 @@ class Query(Resource):
                 print("text "+response.text)
 
     def queryKnowledgeProviderScaffold(self,query):
-        #url ='http://transltr.io:7072/query'
-        url = 'http://localhost:7072/query'
+        url ='http://transltr.io:7072/query'
+        #url = 'http://localhost:7072/query'
         try:
             with closing(requests.post(url, json=query, stream=False)) as response:
                 if response.status_code==200:
