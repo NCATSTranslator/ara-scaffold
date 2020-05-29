@@ -1,0 +1,22 @@
+openapi: '3.0.0'
+info:
+  version: '3.0'
+  title: NCATS ARA Scaffold
+  description: 'a work in progress ara example'
+  contact:
+    name: Mark Williams
+    x-role: responsible developer
+    email: mark.williams5@nih.gov
+servers:
+  - url: 'http://transltr.io:7073'
+    description: 'Production server'
+tags:
+  - name: translator
+paths:
+  /query:
+    post:
+      summary: 'POST a ReasonerStdAPI formatted query to the service'
+      responses:
+        '200':
+          description: 'A query response object'
+          
