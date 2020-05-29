@@ -3,6 +3,7 @@ info:
   version: '3.0'
   title: NCATS ARA Scaffold
   description: 'a work in progress ara example'
+  termsOfService: https://opensource.org/licenses/MIT
   contact:
     name: Mark Williams
     x-role: responsible developer
