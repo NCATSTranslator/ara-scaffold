@@ -286,7 +286,8 @@ class ResponseGraph(object):
 
 class Query(Resource):
     def post(self):
-        query = request.get_json(force=True)
+        message = request.get_json(force=True)
+        query = message["message"]["query_graph"]
         responseGraph = ResponseGraph(
             {
                 "query_graph":query,
